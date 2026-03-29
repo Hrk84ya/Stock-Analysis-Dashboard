@@ -1,8 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import numpy as np
+
 
 def get_stock_data(symbol, period='1y'):
     """Fetch stock data from Yahoo Finance"""
@@ -13,6 +12,7 @@ def get_stock_data(symbol, period='1y'):
         return hist, info
     except Exception as e:
         return None, None
+
 
 def create_comparison_chart(stocks_data):
     """Create a comparison chart for multiple stocks"""
@@ -51,42 +51,49 @@ def create_comparison_chart(stocks_data):
 
     return fig
 
+
 def identify_candlestick_patterns(df):
-    """Identify basic candlestick patterns"""
+    """Identify basic candlestick patterns. Works on a copy to avoid mutating the input."""
     patterns = []
+    work = df.copy()
 
     # Calculate body and shadows
-    df['Body'] = df['Close'] - df['Open']
-    df['Upper_Shadow'] = df['High'] - df[['Open', 'Close']].max(axis=1)
-    df['Lower_Shadow'] = df[['Open', 'Close']].min(axis=1) - df['Low']
+    work['Body'] = work['Close'] - work['Open']
+    work['Upper_Shadow'] = work['High'] - work[['Open', 'Close']].max(axis=1)
+    work['Lower_Shadow'] = work[['Open', 'Close']].min(axis=1) - work['Low']
 
-    for i in range(len(df)):
-        if i < 2:  # Skip first two rows as they need previous data
-            continue
+    # Average absolute body size for Doji threshold
+    avg_body = work['Body'].abs().mean()
 
-        # Doji
-        if abs(df['Body'].iloc[i]) <= 0.1 * df['Close'].iloc[i]:
+    for i in range(2, len(work)):
+        body = work['Body'].iloc[i]
+        abs_body = abs(body)
+        upper = work['Upper_Shadow'].iloc[i]
+        lower = work['Lower_Shadow'].iloc[i]
+        prev_body = work['Body'].iloc[i - 1]
+
+        # Doji — body is very small relative to the average body size
+        if abs_body <= 0.05 * avg_body:
             patterns.append(('Doji', i))
 
         # Hammer
-        elif (df['Lower_Shadow'].iloc[i] > 2 * abs(df['Body'].iloc[i]) and
-              df['Upper_Shadow'].iloc[i] <= abs(df['Body'].iloc[i])):
+        elif lower > 2 * abs_body and upper <= abs_body:
             patterns.append(('Hammer', i))
 
         # Shooting Star
-        elif (df['Upper_Shadow'].iloc[i] > 2 * abs(df['Body'].iloc[i]) and
-              df['Lower_Shadow'].iloc[i] <= abs(df['Body'].iloc[i])):
+        elif upper > 2 * abs_body and lower <= abs_body:
             patterns.append(('Shooting Star', i))
 
-        # Engulfing
-        elif (df['Body'].iloc[i-1] < 0 and df['Body'].iloc[i] > 0 and
-              abs(df['Body'].iloc[i]) > abs(df['Body'].iloc[i-1])):
+        # Bullish Engulfing
+        elif prev_body < 0 and body > 0 and abs_body > abs(prev_body):
             patterns.append(('Bullish Engulfing', i))
-        elif (df['Body'].iloc[i-1] > 0 and df['Body'].iloc[i] < 0 and
-              abs(df['Body'].iloc[i]) > abs(df['Body'].iloc[i-1])):
+
+        # Bearish Engulfing
+        elif prev_body > 0 and body < 0 and abs_body > abs(prev_body):
             patterns.append(('Bearish Engulfing', i))
 
     return patterns
+
 
 def create_price_chart(df):
     """Create an interactive price chart using Plotly"""
@@ -102,8 +109,8 @@ def create_price_chart(df):
         name='OHLC'
     ))
 
-    # Volume bars
-    colors = ['red' if row['Open'] > row['Close'] else 'green' for i, row in df.iterrows()]
+    # Volume bar colors — vectorized instead of iterrows
+    colors = ['red' if o > c else 'green' for o, c in zip(df['Open'], df['Close'])]
     fig.add_trace(go.Bar(
         x=df.index,
         y=df['Volume'],
@@ -139,6 +146,7 @@ def create_price_chart(df):
 
     return fig
 
+
 def format_large_number(number):
     """Format large numbers to human-readable format"""
     if number is None:
@@ -153,6 +161,7 @@ def format_large_number(number):
         return f"${number/million:.2f}M"
     else:
         return f"${number:,.2f}"
+
 
 def get_key_metrics(info):
     """Extract and format key metrics from stock info"""
